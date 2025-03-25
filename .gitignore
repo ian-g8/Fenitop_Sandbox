@@ -1,0 +1,31 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*.so
+
+# Environment and build
+*.env
+.env/
+.venv/
+env/
+venv/
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs / temp
+*.log
+*.tmp
+*.out
+
+# OS and IDE-specific
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
