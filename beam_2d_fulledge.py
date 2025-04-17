@@ -36,14 +36,14 @@ else:
 
 # FEM settings
 fem = {
-    "name": "beam_2d",  # ← Added: defines output folder name
+    "name": "beam_2d_fulledge",  # ← Added: defines output folder name
     "mesh": mesh,
     "mesh_serial": mesh_serial,
     "young's modulus": 100,
     "poisson's ratio": 0.25,
     "disp_bc": lambda x: np.isclose(x[0], 0),
     "traction_bcs": [[(0, -0.2),
-                      lambda x: (np.isclose(x[0], 60) & np.greater(x[1], 8) & np.less(x[1], 12))]],
+                      lambda x: (np.isclose(x[0], 60) & np.greater(x[1], 0) & np.less(x[1], 20))]],
     "body_force": (0, 0),
     "quadrature_degree": 2,
     "petsc_options": {
@@ -54,10 +54,10 @@ fem = {
 
 # Optimization parameters
 opt = {
-    "max_iter": 100,
+    "max_iter": 400,
     "opt_tol": 1e-5,
     "vol_frac": 0.5,
-    "solid_zone": lambda x: np.full(x.shape[1], False),
+    "solid_zone": lambda x: (x[1] < 1.0) | (x[1] > 19.0),   #enforces solid on top and bottom edge
     "void_zone": lambda x: np.full(x.shape[1], False),
     "penalty": 3.0,
     "epsilon": 1e-6,

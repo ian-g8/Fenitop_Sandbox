@@ -1,23 +1,4 @@
-"""
-Authors:
-- Yingqi Jia (yingqij2@illinois.edu)
-- Chao Wang (chaow4@illinois.edu)
-- Xiaojia Shelly Zhang (zhangxs@illinois.edu)
-
-Sponsors:
-- U.S. National Science Foundation (NSF) EAGER Award CMMI-2127134
-- U.S. Defense Advanced Research Projects Agency (DARPA) Young Faculty Award
-  (N660012314013)
-- NSF CAREER Award CMMI-2047692
-- NSF Award CMMI-2245251
-
-Reference:
-- Jia, Y., Wang, C. & Zhang, X.S. FEniTop: a simple FEniCSx implementation
-  for 2D and 3D topology optimization supporting parallel computing.
-  Struct Multidisc Optim 67, 140 (2024).
-  https://doi.org/10.1007/s00158-024-03818-7
-"""
-
+import os
 import time
 
 import numpy as np
@@ -32,6 +13,11 @@ from fenitop.utility import Communicator, Plotter, save_xdmf
 
 def topopt(fem, opt):
     """Main function for topology optimization."""
+
+    # Determine output folder from fem["name"]
+    results_dir = os.path.join("results", fem.get("name", "default_output"))
+    if MPI.COMM_WORLD.rank == 0:
+        os.makedirs(results_dir, exist_ok=True)
 
     # Initialization
     comm = MPI.COMM_WORLD
@@ -59,7 +45,7 @@ def topopt(fem, opt):
     rho_min[solid], rho_max[void] = 0.99, 0.01
 
     # Start topology optimization
-    opt_iter, beta, change = 0, 1, 2*opt["opt_tol"]
+    opt_iter, beta, change = 0, 1, 2 * opt["opt_tol"]
     while opt_iter < opt["max_iter"] and change > opt["opt_tol"]:
         opt_start_time = time.perf_counter()
         opt_iter += 1
@@ -78,11 +64,12 @@ def topopt(fem, opt):
         [C_value, V_value, U_value], sensitivities = sens_problem.evaluate()
         heaviside.backward(sensitivities)
         [dCdrho, dVdrho, dUdrho] = density_filter.backward(sensitivities)
+
         if opt["opt_compliance"]:
-            g_vec = np.array([V_value-opt["vol_frac"]])
+            g_vec = np.array([V_value - opt["vol_frac"]])
             dJdrho, dgdrho = dCdrho, np.vstack([dVdrho])
         else:
-            g_vec = np.array([V_value-opt["vol_frac"], C_value-opt["compliance_bound"]])
+            g_vec = np.array([V_value - opt["vol_frac"], C_value - opt["compliance_bound"]])
             dJdrho, dgdrho = dUdrho, np.vstack([dVdrho, dCdrho])
 
         # Update the design variables
@@ -105,7 +92,8 @@ def topopt(fem, opt):
                   f"beta: {beta}, C: {C_value:.3f}, V: {V_value:.3f}, "
                   f"U: {U_value:.3f}, change: {change:.3f}", flush=True)
 
+    # Final save and plot
     values = S_comm.gather(rho_phys_field)
     if comm.rank == 0:
-        plotter.plot(values)
-    save_xdmf(fem["mesh"], rho_phys_field)
+        plotter.save(values, path=os.path.join(results_dir, ""))
+    save_xdmf(fem["mesh"], rho_phys_field, path=os.path.join(results_dir, ""))

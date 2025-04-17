@@ -18,33 +18,32 @@ Reference:
   https://doi.org/10.1007/s00158-024-03818-7
 """
 
-import os  # Enables output to results folder
 import numpy as np
 from mpi4py import MPI
-from dolfinx.mesh import create_rectangle, CellType
+from dolfinx.mesh import create_box, CellType
 
 from fenitop.topopt import topopt
 
-# Create mesh
-mesh = create_rectangle(MPI.COMM_WORLD, [[0, 0], [60, 20]],
-                        [200, 60], CellType.quadrilateral)
+
+mesh = create_box(MPI.COMM_WORLD, [[0, 0, 0], [10, 30, 10]],
+                  [75, 225, 75], CellType.hexahedron)
 if MPI.COMM_WORLD.rank == 0:
-    mesh_serial = create_rectangle(MPI.COMM_SELF, [[0, 0], [60, 20]],
-                                   [200, 60], CellType.quadrilateral)
+    mesh_serial = create_box(MPI.COMM_SELF, [[0, 0, 0], [10, 30, 10]],
+                             [75, 225, 75], CellType.hexahedron)
 else:
     mesh_serial = None
 
-# FEM settings
-fem = {
-    "name": "beam_2d",  # ← Added: defines output folder name
+fem = {  # FEA parameters
     "mesh": mesh,
     "mesh_serial": mesh_serial,
     "young's modulus": 100,
     "poisson's ratio": 0.25,
-    "disp_bc": lambda x: np.isclose(x[0], 0),
-    "traction_bcs": [[(0, -0.2),
-                      lambda x: (np.isclose(x[0], 60) & np.greater(x[1], 8) & np.less(x[1], 12))]],
-    "body_force": (0, 0),
+    "disp_bc": lambda x: np.isclose(x[1], 0) & (np.less(x[0], 1.5) | np.greater(x[0], 8.5)),
+    "traction_bcs": [[(0, 0, -2.0),
+                     lambda x: np.isclose(x[1], 30) & (
+                         np.greater(x[0], 4.5) & np.less(x[0], 5.5)
+                         & np.greater(x[2], 4.5) & np.less(x[2], 5.5))]],
+    "body_force": (0, 0, 0),
     "quadrature_degree": 2,
     "petsc_options": {
         "ksp_type": "cg",
@@ -52,16 +51,15 @@ fem = {
     },
 }
 
-# Optimization parameters
-opt = {
-    "max_iter": 100,
+opt = {  # Topology optimization parameters
+    "max_iter": 400,
     "opt_tol": 1e-5,
-    "vol_frac": 0.5,
+    "vol_frac": 0.08,
     "solid_zone": lambda x: np.full(x.shape[1], False),
     "void_zone": lambda x: np.full(x.shape[1], False),
     "penalty": 3.0,
     "epsilon": 1e-6,
-    "filter_radius": 1.2,
+    "filter_radius": 0.6,
     "beta_interval": 50,
     "beta_max": 128,
     "use_oc": True,
@@ -72,5 +70,5 @@ opt = {
 if __name__ == "__main__":
     topopt(fem, opt)
 
-# To execute in parallel:
-# mpirun -n 8 python3 beam_2d.py
+# Execute the code in parallel:
+# mpirun -n 8 python3 scripts/beam_3d.py

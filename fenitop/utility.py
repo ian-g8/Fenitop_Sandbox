@@ -1,23 +1,3 @@
-"""
-Authors:
-- Yingqi Jia (yingqij2@illinois.edu)
-- Chao Wang (chaow4@illinois.edu)
-- Xiaojia Shelly Zhang (zhangxs@illinois.edu)
-
-Sponsors:
-- U.S. National Science Foundation (NSF) EAGER Award CMMI-2127134
-- U.S. Defense Advanced Research Projects Agency (DARPA) Young Faculty Award
-  (N660012314013)
-- NSF CAREER Award CMMI-2047692
-- NSF Award CMMI-2245251
-
-Reference:
-- Jia, Y., Wang, C. & Zhang, X.S. FEniTop: a simple FEniCSx implementation
-  for 2D and 3D topology optimization supporting parallel computing.
-  Struct Multidisc Optim 67, 140 (2024).
-  https://doi.org/10.1007/s00158-024-03818-7
-"""
-
 import numpy as np
 from scipy.spatial import cKDTree
 from petsc4py import PETSc
@@ -30,7 +10,6 @@ import pyvista
 
 
 def create_mechanism_vectors(func_space, in_spring, out_spring):
-    """Create vectors for compliant mechanism design."""
     index_map = func_space.dofmap.index_map
     block_size = func_space.dofmap.index_map_bs
     spring_vec = la.create_petsc_vector(index_map, block_size)
@@ -44,10 +23,10 @@ def create_mechanism_vectors(func_space, in_spring, out_spring):
     for n, (locator, direction, value) in enumerate([in_spring, out_spring]):
         ctrl_nodes = local_indices[locator(local_nodes.T)]
         offset = ["x", "y", "z"].index(direction)
-        ctrl_dofs = ctrl_nodes*block_size + offset
-        spring_vec.setValues(ctrl_dofs, [value,]*ctrl_dofs.size)
+        ctrl_dofs = ctrl_nodes * block_size + offset
+        spring_vec.setValues(ctrl_dofs, [value] * ctrl_dofs.size)
         if n == 1:
-            l_vec.setValues(ctrl_dofs, [1.0,]*ctrl_dofs.size)
+            l_vec.setValues(ctrl_dofs, [1.0] * ctrl_dofs.size)
     spring_vec.assemble()
     l_vec.assemble()
     return spring_vec, l_vec
@@ -55,8 +34,6 @@ def create_mechanism_vectors(func_space, in_spring, out_spring):
 
 class LinearProblem:
     def __init__(self, u, lam, lhs, rhs, l_vec, spring_vec, bcs=[], petsc_options={}):
-        """Initialize a linear problem."""
-        # Initialization
         self.u, self.lam = u, lam
         self.u_wrap = la.create_petsc_vector_wrap(self.u.x)
         self.lam_wrap = la.create_petsc_vector_wrap(self.lam.x)
@@ -65,13 +42,11 @@ class LinearProblem:
         self.rhs_vec = create_vector(self.rhs_form)
         self.bcs, self.l_vec, self.spring_vec = bcs, l_vec, spring_vec
 
-        # Construct a linear solver
         self.solver = PETSc.KSP().create(self.u.function_space.mesh.comm)
         self.solver.setOperators(self.lhs_mat)
         prefix = f"linear_solver_{id(self)}"
         self.solver.setOptionsPrefix(prefix)
 
-        # Apply PETSc options
         opts = PETSc.Options()
         opts.prefixPush(prefix)
         for key, value in petsc_options.items():
@@ -88,17 +63,15 @@ class LinearProblem:
         set_bc(self.rhs_vec, self.bcs)
 
     def solve_fem(self):
-        """Solve K*x=F for FEM."""
         self.lhs_mat.zeroEntries()
         assemble_matrix(self.lhs_mat, self.lhs_form, bcs=self.bcs)
         self.lhs_mat.assemble()
         if self.spring_vec is not None:
-            self.lhs_mat.setDiagonal(self.lhs_mat.getDiagonal()+self.spring_vec)
+            self.lhs_mat.setDiagonal(self.lhs_mat.getDiagonal() + self.spring_vec)
         self.solver.solve(self.rhs_vec, self.u_wrap)
         self.u.x.scatter_forward()
 
     def solve_adjoint(self):
-        """Solve K*lambda=-L for the adjoint equation."""
         self.solver.solve(-self.l_vec, self.lam_wrap)
         self.lam.x.scatter_forward()
 
@@ -113,9 +86,7 @@ class LinearProblem:
             self.l_vec.destroy()
 
 
-class Communicator():
-    """Communicate information among different processes."""
-
+class Communicator:
     def __init__(self, func_space, mesh_serial, size=1):
         self.size = size
         self.comm = func_space.mesh.comm
@@ -126,11 +97,10 @@ class Communicator():
         num_nodal_dofs = func_space.dofmap.index_map_bs
         self.num_global_dofs = num_global_nodes * num_nodal_dofs
 
-        local_nodal_range = np.asarray(idx_map.local_range, dtype=np.int32)  # [start, end]
-        local_dof_range = local_nodal_range * num_nodal_dofs  # [start, end]
+        local_nodal_range = np.asarray(idx_map.local_range, dtype=np.int32)
+        local_dof_range = local_nodal_range * num_nodal_dofs
         local_nodes = func_space.tabulate_dof_coordinates()[:num_local_nodes]
 
-        # Gather to Process 0
         local_nodal_range_gather = self.comm.gather(local_nodal_range, root=0)
         self.local_dof_range_gather = self.comm.gather(local_dof_range, root=0)
         local_nodes_gather = self.comm.gather(local_nodes, root=0)
@@ -146,40 +116,37 @@ class Communicator():
             global_to_local_nodes = compare_matrices(nodes_serial, nodes_collect)
             local_to_global_nodes = compare_matrices(nodes_collect, nodes_serial)
 
-            def node2dof(nodes, num_nodal_dofs):
-                return (np.tile(nodes, (num_nodal_dofs, 1))*num_nodal_dofs
-                        + np.arange(num_nodal_dofs).reshape(-1, 1)).ravel("F")
+            def node2dof(nodes, ndof):
+                return (np.tile(nodes, (ndof, 1)) * ndof + np.arange(ndof).reshape(-1, 1)).ravel("F")
 
             global_to_local_dofs = node2dof(global_to_local_nodes, num_nodal_dofs)
             self.local_to_global_dofs = node2dof(local_to_global_nodes, num_nodal_dofs)
             self.local_to_global_dofs = (
-                np.tile(self.local_to_global_dofs.reshape(-1, 1), (1, size))*size + np.arange(size)).ravel()
+                np.tile(self.local_to_global_dofs.reshape(-1, 1), (1, size)) * size + np.arange(size)).ravel()
         else:
             global_to_local_dofs = None
         global_to_local_dofs = self.comm.bcast(global_to_local_dofs, root=0)
         self.idx = global_to_local_dofs[local_dof_range[0]:local_dof_range[1]]
 
     def bcast(self, func, global_values):
-        """Broadcast data from Process 0 to all the other processes."""
         if func.vector.size != global_values.size:
             raise ValueError("Mismatched sizes.")
         func.vector.array = global_values[self.idx]
 
     def gather(self, func):
-        """Gather data to Process 0 from all the other processes."""
-        if type(func) is Function:
+        if isinstance(func, Function):
             values_gather = self.comm.gather(func.vector.array, root=0)
-        elif type(func) is PETSc.Vec:
+        elif isinstance(func, PETSc.Vec):
             values_gather = self.comm.gather(func.array, root=0)
-        elif type(func) is np.ndarray:
+        elif isinstance(func, np.ndarray):
             values_gather = self.comm.gather(func, root=0)
         else:
             raise TypeError("Unsupported func.")
 
         if self.comm.rank == 0:
-            values_collect = np.zeros(self.num_global_dofs*self.size)
+            values_collect = np.zeros(self.num_global_dofs * self.size)
             for r, local_values in zip(self.local_dof_range_gather, values_gather):
-                values_collect[r[0]*self.size:r[1]*self.size] = local_values
+                values_collect[r[0] * self.size:r[1] * self.size] = local_values
             global_values = values_collect[self.local_to_global_dofs]
         else:
             global_values = None
@@ -187,14 +154,12 @@ class Communicator():
 
 
 def compare_matrices(array1, array2, precision=12, k=1):
-    """Find the "args" such that array1[args] == array2."""
     kd_tree = cKDTree(array1.round(precision))
     return kd_tree.query(array2.round(precision), k=k)[1]
 
 
-class Plotter():
+class Plotter:
     def __init__(self, mesh):
-        """Initialize a plotter."""
         pyvista.OFF_SCREEN = True
         pyvista.start_xvfb()
         self.dim = mesh.topology.dim
@@ -220,12 +185,15 @@ class Plotter():
                              show_scalar_bar=False)
             if self.dim == 2:
                 plotter.view_xy()
-            plotter.screenshot(path+"optimized_design.jpg", window_size=(1000, 1000))
+            plotter.screenshot(path + "optimized_design.jpg", window_size=(1000, 1000))
             plotter.close()
+
+    def save(self, density, path):
+        self.plot(density, path=path)
 
 
 def save_xdmf(mesh, rho, path=""):
-    xdmf = dolfinx.io.XDMFFile(mesh.comm, path+"optimized_design.xdmf", "w")
+    xdmf = dolfinx.io.XDMFFile(mesh.comm, path + "optimized_design.xdmf", "w")
     xdmf.write_mesh(mesh)
     rho.name = "density"
     xdmf.write_function(rho)
